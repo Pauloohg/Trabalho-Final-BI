@@ -116,3 +116,46 @@ def extrair_csvs(pasta):
 
         print(f"  Lido: {nome} ({len(dfs[chave])} linhas)")
     return dfs
+
+
+# HELPERS
+def _parse_data(texto):
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(str(texto).strip(), fmt).date()
+        except Exception:
+            pass
+    return None
+
+
+def _parse_decimal(valor):
+    try:
+        v = str(valor).strip()
+        if v in ("", "-", "nan"):
+            return None
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _dias_entre(d1, d2):
+    if d1 is None or d2 is None:
+        return None
+    try:
+        delta = (d2 - d1).days
+        return int(delta) if delta >= 0 else None
+    except Exception:
+        return None
+
+
+def _none(val):
+    import math
+    if val is None:
+        return None
+    if isinstance(val, str) and val.strip().lower() in ("nan", "none", ""):
+        return None
+    try:
+        f = float(val)
+        return None if math.isnan(f) else val
+    except (TypeError, ValueError):
+        return val if str(val).strip() != "" else None
