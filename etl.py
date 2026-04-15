@@ -84,3 +84,35 @@ TRADUCAO_MANUAL = {
     "portateis_cozinha_e_preparadores_de_alimentos":  "Portable Kitchen & Food Processors",
     "":                                               "Uncategorized",
 }
+
+
+# EXTRACT
+def extrair_csvs(pasta):
+    arquivos = {
+        "pedidos":    "olist_orders_dataset.csv",
+        "itens":      "olist_order_items_dataset.csv",
+        "clientes":   "olist_customers_dataset.csv",
+        "produtos":   "olist_products_dataset.csv",
+        "vendedores": "olist_sellers_dataset.csv",
+        "avaliacoes": "olist_order_reviews_dataset.csv",
+        "pagamentos": "olist_order_payments_dataset.csv",
+        "traducao":   "product_category_name_translation.csv",
+    }
+    dfs = {}
+    for chave, nome in arquivos.items():
+        caminho = os.path.join(pasta, nome)
+        if not os.path.exists(caminho):
+            raise FileNotFoundError(f"Arquivo nao encontrado: {caminho}")
+
+        if chave == "avaliacoes":
+            dfs[chave] = pd.read_csv(
+                caminho,
+                dtype=str,
+                keep_default_na=False,
+                usecols=["order_id", "review_score", "review_answer_timestamp"],
+            )
+        else:
+            dfs[chave] = pd.read_csv(caminho, dtype=str, keep_default_na=False)
+
+        print(f"  Lido: {nome} ({len(dfs[chave])} linhas)")
+    return dfs
