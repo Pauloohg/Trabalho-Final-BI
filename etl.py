@@ -67,3 +67,20 @@ CREATE TABLE IF NOT EXISTS fato_pedido (
     dias_para_entrega  SMALLINT
 );
 """
+
+NOMES_MESES = {
+    1: "Janeiro",   2: "Fevereiro", 3: "Março",    4: "Abril",
+    5: "Maio",      6: "Junho",     7: "Julho",     8: "Agosto",
+    9: "Setembro", 10: "Outubro",  11: "Novembro", 12: "Dezembro",
+}
+NOMES_DIAS = {
+    0: "Segunda-feira", 1: "Terça-feira",  2: "Quarta-feira",
+    3: "Quinta-feira",  4: "Sexta-feira",  5: "Sábado", 6: "Domingo",
+}
+
+# Categorias que não estavam na tabela
+TRADUCAO_MANUAL = {
+    "pc_gamer":                                       "PC Gamer",
+    "portateis_cozinha_e_preparadores_de_alimentos":  "Portable Kitchen & Food Processors",
+    "":                                               "Uncategorized",
+}
