@@ -128,16 +128,16 @@ DIM_CLIENTE ──────────────── FATO_PEDIDO ──�
 
 ## Perguntas de Negócio Respondidas
 
-1. Faturamento total e ticket médio por mês
-2. Top 10 categorias de produtos por faturamento
-3. Distribuição de pedidos por status
-4. Análise de avaliações dos clientes (nota 1 a 5)
-5. Prazo médio de entrega por estado do cliente
-6. Top 10 estados por faturamento
-7. Top 10 vendedores por faturamento
-8. Volume de pedidos por dia da semana
-9. Relação entre nota de avaliação e prazo de entrega
-10. Sazonalidade por trimestre
+1. Qual é o faturamento por trimestre e sua evolução ao longo dos anos?
+2. Quais categorias de produto geram mais receita?
+3. Qual é a nota média de satisfação dos clientes?
+4. Qual é o ticket médio por categoria?
+5. Qual é a proporção de pedidos por status?
+6. Qual é a taxa de entrega dos pedidos?
+7. Quais estados concentram mais pedidos e faturamento?
+8. Quais estados têm o pior prazo de entrega?
+9. Quais dias da semana concentram mais compras?
+10. Quais são os vendedores com melhor desempenho?
 
 ---
 
