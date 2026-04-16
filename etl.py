@@ -159,3 +159,109 @@ def _none(val):
         return None if math.isnan(f) else val
     except (TypeError, ValueError):
         return val if str(val).strip() != "" else None
+    
+
+# TRANSFORM
+def transformar(dfs):
+    pedidos    = dfs["pedidos"].copy()
+    itens      = dfs["itens"].copy()
+    clientes   = dfs["clientes"].copy()
+    produtos   = dfs["produtos"].copy()
+    vendedores = dfs["vendedores"].copy()
+    avaliacoes = dfs["avaliacoes"].copy()
+    pagamentos = dfs["pagamentos"].copy()
+    traducao   = dfs["traducao"].copy()
+    # geolocation removido: estado já presente em dim_cliente e dim_vendedor
+
+    mapa_customer_id = clientes.set_index("customer_id")["customer_unique_id"].to_dict()
+
+    clientes = (
+        clientes[["customer_id", "customer_unique_id", "customer_city", "customer_state"]]
+        .rename(columns={"customer_city": "cidade", "customer_state": "estado"})
+        .drop_duplicates(subset=["customer_unique_id"])
+    )
+
+    traducao.columns = [c.lstrip("\ufeff").strip() for c in traducao.columns]
+    traducao = traducao.rename(columns={
+        "product_category_name":         "categoria",
+        "product_category_name_english": "categoria_en",
+    })
+
+    produtos = produtos[["product_id", "product_category_name"]].rename(
+        columns={"product_category_name": "categoria"}
+    )
+    produtos["categoria"] = produtos["categoria"].str.strip()
+
+    produtos = produtos.merge(traducao, on="categoria", how="left")
+
+    # Preenche as 3 categorias sem tradução via dicionário manual
+    def _traduzir(row):
+        if pd.isna(row["categoria_en"]) or str(row["categoria_en"]).strip() == "":
+            return TRADUCAO_MANUAL.get(row["categoria"], row["categoria"])
+        return row["categoria_en"]
+
+    produtos["categoria_en"] = produtos.apply(_traduzir, axis=1)
+    produtos["categoria"] = produtos["categoria"].replace("", "uncategorized")
+    produtos = produtos.drop_duplicates(subset=["product_id"])
+
+    vendedores = vendedores[["seller_id", "seller_city", "seller_state"]].rename(
+        columns={"seller_city": "cidade", "seller_state": "estado"}
+    )
+
+    avaliacoes["review_answer_timestamp"] = avaliacoes["review_answer_timestamp"].apply(_parse_data)
+    avaliacoes = (
+        avaliacoes
+        .sort_values("review_answer_timestamp", ascending=False, na_position="last")
+        .drop_duplicates(subset=["order_id"])
+        [["order_id", "review_score"]]
+    )
+    avaliacoes["review_score"] = pd.to_numeric(avaliacoes["review_score"], errors="coerce")
+
+    pagamentos["payment_value"]        = pd.to_numeric(pagamentos["payment_value"],        errors="coerce").fillna(0)
+    pagamentos["payment_installments"] = pd.to_numeric(pagamentos["payment_installments"], errors="coerce").fillna(0)
+    pagamentos["payment_installments"] = pagamentos["payment_installments"].apply(
+        lambda x: 1 if x == 0 else x
+    )
+
+    def _agregar_pagamento(grupo):
+        idx_principal = grupo["payment_value"].idxmax()
+        return pd.Series({
+            "tipo_pagamento": grupo.loc[idx_principal, "payment_type"],
+            "parcelas":       int(grupo["payment_installments"].max()),
+            "valor_pago":     round(grupo["payment_value"].sum(), 2),
+        })
+
+    pagamentos_agg = pagamentos.groupby("order_id").apply(_agregar_pagamento).reset_index()
+
+    pedidos["data_compra"]  = pedidos["order_purchase_timestamp"].apply(_parse_data)
+    pedidos["data_entrega"] = pedidos["order_delivered_customer_date"].apply(_parse_data)
+
+    antes = len(pedidos)
+    pedidos = pedidos.dropna(subset=["data_compra"])
+    descartados = antes - len(pedidos)
+    if descartados:
+        print(f"  Aviso: {descartados} pedido(s) sem data de compra removidos")
+
+    itens["valor_produto"] = itens["price"].apply(_parse_decimal)
+    itens["valor_frete"]   = itens["freight_value"].apply(_parse_decimal)
+    itens["valor_total"]   = itens.apply(
+        lambda r: (r["valor_produto"] or 0.0) + (r["valor_frete"] or 0.0), axis=1
+    )
+    qtd_itens = itens.groupby("order_id").size().reset_index(name="qtd_itens")
+
+    df = itens.merge(
+        pedidos[["order_id", "customer_id", "order_status", "data_compra", "data_entrega"]],
+        on="order_id", how="inner"
+    )
+
+    df["customer_unique_id"] = df["customer_id"].map(mapa_customer_id)
+    df = df.merge(avaliacoes,     on="order_id", how="left")
+    df = df.merge(pagamentos_agg, on="order_id", how="left")
+    df = df.merge(qtd_itens,      on="order_id", how="left")
+
+    df["qtd_itens"]        = df["qtd_itens"].fillna(1).astype(int)
+    df["dias_para_entrega"] = df.apply(
+        lambda r: _dias_entre(r["data_compra"], r["data_entrega"]), axis=1
+    )
+
+    return df, clientes, produtos, vendedores
