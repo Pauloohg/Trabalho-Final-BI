@@ -265,3 +265,249 @@ def transformar(dfs):
     )
 
     return df, clientes, produtos, vendedores
+
+# BUILD DIM_DATA
+def construir_dim_data(datas):
+    registros = {}
+    for d in datas:
+        if d is None:
+            continue
+        id_data = int(d.strftime("%Y%m%d"))
+        if id_data not in registros:
+            dow = d.weekday()
+            registros[id_data] = {
+                "id_data":         id_data,
+                "data":            d,
+                "dia":             d.day,
+                "mes":             d.month,
+                "nome_mes":        NOMES_MESES[d.month],
+                "trimestre":       (d.month - 1) // 3 + 1,
+                "ano":             d.year,
+                "dia_semana_num":  dow,
+                "dia_semana_nome": NOMES_DIAS[dow],
+                "fim_de_semana":   dow >= 5,
+            }
+    return list(registros.values())
+
+
+
+# LOAD
+def conectar(host, port, db, user, password):
+    conn = psycopg2.connect(host=host, port=port, dbname=db, user=user, password=password)
+    conn.autocommit = False
+    return conn
+
+
+def criar_schema(conn):
+    with conn.cursor() as cur:
+        cur.execute(DDL)
+    conn.commit()
+
+
+def truncar_tabelas(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "TRUNCATE TABLE fato_pedido, dim_vendedor, dim_produto, "
+            "dim_cliente, dim_data RESTART IDENTITY CASCADE;"
+        )
+    conn.commit()
+
+
+def carregar_dim_data(conn, registros):
+    sql = """
+        INSERT INTO dim_data
+            (id_data, data, dia, mes, nome_mes, trimestre, ano,
+             dia_semana_num, dia_semana_nome, fim_de_semana)
+        VALUES %s
+        ON CONFLICT (id_data) DO NOTHING;
+    """
+    valores = [(
+        r["id_data"], r["data"], r["dia"], r["mes"], r["nome_mes"],
+        r["trimestre"], r["ano"], r["dia_semana_num"],
+        r["dia_semana_nome"], r["fim_de_semana"],
+    ) for r in registros]
+    with conn.cursor() as cur:
+        execute_values(cur, sql, valores)
+    conn.commit()
+
+
+def carregar_dim_cliente(conn, clientes):
+    sql_ins = """
+        INSERT INTO dim_cliente (customer_unique_id, cidade, estado)
+        VALUES %s ON CONFLICT (customer_unique_id) DO NOTHING;
+    """
+    sql_sel = "SELECT id_cliente, customer_unique_id FROM dim_cliente;"
+    valores = [
+        (row["customer_unique_id"], row["cidade"] or None, row["estado"] or None)
+        for _, row in clientes.iterrows()
+    ]
+    with conn.cursor() as cur:
+        execute_values(cur, sql_ins, valores)
+        cur.execute(sql_sel)
+        mapa = {row[1]: row[0] for row in cur.fetchall()}
+    conn.commit()
+    return mapa
+
+
+def carregar_dim_produto(conn, produtos):
+    sql_ins = """
+        INSERT INTO dim_produto (product_id, categoria, categoria_en)
+        VALUES %s ON CONFLICT (product_id) DO NOTHING;
+    """
+    sql_sel = "SELECT id_produto, product_id FROM dim_produto;"
+    valores = [
+        (row["product_id"], row["categoria"] or None, row["categoria_en"] or None)
+        for _, row in produtos.iterrows()
+    ]
+    with conn.cursor() as cur:
+        execute_values(cur, sql_ins, valores)
+        cur.execute(sql_sel)
+        mapa = {row[1]: row[0] for row in cur.fetchall()}
+    conn.commit()
+    return mapa
+
+
+def carregar_dim_vendedor(conn, vendedores):
+    sql_ins = """
+        INSERT INTO dim_vendedor (seller_id, cidade, estado)
+        VALUES %s ON CONFLICT (seller_id) DO NOTHING;
+    """
+    sql_sel = "SELECT id_vendedor, seller_id FROM dim_vendedor;"
+    valores = [
+        (row["seller_id"], row["cidade"] or None, row["estado"] or None)
+        for _, row in vendedores.iterrows()
+    ]
+    with conn.cursor() as cur:
+        execute_values(cur, sql_ins, valores)
+        cur.execute(sql_sel)
+        mapa = {row[1]: row[0] for row in cur.fetchall()}
+    conn.commit()
+    return mapa
+
+
+def carregar_fato(conn, df, map_cliente, map_produto, map_vendedor):
+    registros = []
+    pulados   = 0
+
+    for _, row in df.iterrows():
+        id_data_compra  = int(row["data_compra"].strftime("%Y%m%d"))
+        id_data_entrega = (
+            int(row["data_entrega"].strftime("%Y%m%d"))
+            if row["data_entrega"] else None
+        )
+        id_cliente  = map_cliente.get(row["customer_unique_id"])
+        id_produto  = map_produto.get(row["product_id"])
+        id_vendedor = map_vendedor.get(row["seller_id"])
+
+        if None in (id_cliente, id_produto, id_vendedor):
+            pulados += 1
+            continue
+
+        nota = _none(row.get("review_score"))
+        nota = int(nota) if nota is not None else None
+
+        parcelas = _none(row.get("parcelas"))
+        parcelas = int(parcelas) if parcelas is not None else None
+
+        registros.append((
+            row["order_id"],
+            id_data_compra,
+            id_data_entrega,
+            id_cliente,
+            id_produto,
+            id_vendedor,
+            row["order_status"] or None,
+            _none(row["valor_produto"]),
+            _none(row["valor_frete"]),
+            _none(row["valor_total"]),
+            row.get("tipo_pagamento") or None,
+            parcelas,
+            _none(row.get("valor_pago")),
+            nota,
+            int(row["qtd_itens"]),
+            _none(row["dias_para_entrega"]),
+        ))
+
+    sql = """
+        INSERT INTO fato_pedido (
+            order_id, id_data_compra, id_data_entrega,
+            id_cliente, id_produto, id_vendedor,
+            status_pedido, valor_produto, valor_frete, valor_total,
+            tipo_pagamento, parcelas, valor_pago,
+            nota_avaliacao, qtd_itens, dias_para_entrega
+        ) VALUES %s;
+    """
+    with conn.cursor() as cur:
+        execute_values(cur, sql, registros, page_size=500)
+    conn.commit()
+
+    if pulados:
+        print(f"  Aviso: {pulados} linha(s) ignoradas (chave nao encontrada nas dimensoes)")
+
+    return len(registros)
+
+
+
+# EXECUÇÃO PRINCIPAL
+def executar_etl(host, port, db, user, password, pasta):
+    print("=" * 60)
+    print("  ETL - DW Olist E-Commerce")
+    print("=" * 60)
+
+    print("\n[1/4] Extraindo CSVs...")
+    dfs = extrair_csvs(pasta)
+
+    print("\n[2/4] Transformando dados...")
+    df, clientes, produtos, vendedores = transformar(dfs)
+    print(f"  Total de itens de pedido apos joins: {len(df)}")
+
+    print("\n[3/4] Conectando ao banco...")
+    conn = conectar(host, port, db, user, password)
+
+    try:
+        criar_schema(conn)
+        truncar_tabelas(conn)
+
+        print("\n[4/4] Carregando dimensoes e fato...")
+
+        todas_datas = (
+            list(df["data_compra"].dropna().unique())
+            + list(df["data_entrega"].dropna().unique())
+        )
+        carregar_dim_data(conn, construir_dim_data(todas_datas))
+        print("  dim_data        OK")
+
+        map_cliente  = carregar_dim_cliente(conn, clientes)
+        print(f"  dim_cliente     OK  ({len(map_cliente)} clientes unicos)")
+
+        map_produto  = carregar_dim_produto(conn, produtos)
+        print(f"  dim_produto     OK  ({len(map_produto)} produtos)")
+
+        map_vendedor = carregar_dim_vendedor(conn, vendedores)
+        print(f"  dim_vendedor    OK  ({len(map_vendedor)} vendedores)")
+
+        total_fato = carregar_fato(conn, df, map_cliente, map_produto, map_vendedor)
+        print(f"  fato_pedido     OK  ({total_fato} registros)")
+
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+    print("\n" + "=" * 60)
+    print("  ETL concluido com sucesso!")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="ETL - DW Olist E-Commerce")
+    parser.add_argument("--host",     default=os.getenv("DB_HOST",     "localhost"))
+    parser.add_argument("--port",     default=int(os.getenv("DB_PORT", "5432")), type=int)
+    parser.add_argument("--db",       default=os.getenv("DB_NAME",     "dw_olist"))
+    parser.add_argument("--user",     default=os.getenv("DB_USER",     "postgres"))
+    parser.add_argument("--password", default=os.getenv("DB_PASSWORD", ""))
+    parser.add_argument("--pasta",    default=os.getenv("DB_PASTA",    "./dados"))
+    args = parser.parse_args()
+
+    executar_etl(args.host, args.port, args.db, args.user, args.password, args.pasta)
