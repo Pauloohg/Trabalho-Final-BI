@@ -10,7 +10,7 @@ O dashboard foi desenvolvido no Power BI Desktop e conecta diretamente ao banco 
 
 **Objetivo:** Apresentar os principais KPIs do negócio em uma única tela de alto nível.
 
-![Página 1](imagens/Pg1Olist.png)
+![Página 1](imagens/Pg1Olist.PNG)
 
 ### Cartões de KPI (topo)
 | Métrica              | Descrição                                              |
@@ -35,7 +35,7 @@ O dashboard foi desenvolvido no Power BI Desktop e conecta diretamente ao banco 
 
 **Objetivo:** Analisar o desempenho por categoria de produto e identificar os mais relevantes.
 
-![Página 2](imagens/Pg2Olist.png)
+![Página 2](imagens/Pg2Olist.PNG)
 
 ### Gráficos
 - **Top 10 categorias por faturamento** (gráfico de barras horizontais)
@@ -55,7 +55,7 @@ O dashboard foi desenvolvido no Power BI Desktop e conecta diretamente ao banco 
 
 **Objetivo:** Entender a distribuição geográfica dos clientes e o desempenho de entrega por estado.
 
-![Página 3](imagens/Pg3Olist.png)
+![Página 3](imagens/Pg3Olist.PNG)
 
 ### Gráficos
 - **Faturamento por estado (UF do cliente)** (mapa do Brasil ou gráfico de barras horizontais)
